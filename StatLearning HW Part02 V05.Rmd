@@ -1,0 +1,170 @@
+---
+title: "Statistical Learning - Final Howework"
+author: "Mousaalreza Dastmard, Farid Rasolov, Francios Chassaing"
+date: "Summer 2019"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: 4
+  pdf_document:
+    toc: yes
+    toc_depth: '4'
+header-includes: \usepackage{graphicx}
+---
+
+
+## Additive Model
+The first step for implementing the basic backfitting algorithm is choosing a smoother that Gaussian and Epanechnikov kernel smoother is selected.
+
+Gaussian: 
+\begin{eqnarray*}
+k(x) = \frac{1}{\sqrt{2\pi}}e^{-\frac{x^2}{2}} \\
+\end{eqnarray*}
+Epanechnikov: 
+\begin{eqnarray*}
+k(x) = \frac{3}{4}(1-x^2).\mathbb{I}_{[-1,+1]}(x) \\
+\end{eqnarray*}
+
+A kernel smoother is a statistical technique to estimate a real valued function $f:\mathbb{R} \rightarrow \mathbb{R}$ as the weighted average of neighboring observed data.
+
+\begin{eqnarray*}
+f_h(x) = \frac{\sum_{i=1}^{n}k(\frac{1}{h}(x-X_i))Y_i}{\sum_{i=1}^{n}k(\frac{1}{h}(x-X_i))} \\
+\end{eqnarray*}
+
+The weights is defined by the kernel, such that closer points are given higher weights. The estimated function is smooth, and the level of smoothness is set by a single parameter.([Wikiperida](https://en.wikipedia.org/wiki/Kernel_smoother])), the function below output the smoothed value of the vector Y for given point x and corresponding values of X_ related to Y based on bandwidth h.
+
+```{r}
+# Gaussion Kernel smoother function 
+gas_smoother = function(x,X_,Y,h){
+  a = 0
+  b = 0
+  for(i in 1:length(X_)){
+    xx = (x-X_[i])/h
+    a = a + 1/sqrt(2*pi)*exp(-xx^2/2)*Y[i]
+    b = b + 1/sqrt(2*pi)*exp(-xx^2/2)
+  }
+  return(a/b)
+}
+# Epanechnikov Kernel smoother function 
+epn_smoother = function(x,X_,Y,h){
+  a = 0
+  b = 0
+  for(i in 1:length(X_)){
+    xx = (x-X_[i])/h
+    k = 3/4*(1-xx^2)*(abs(xx) <=1)
+    a = a + k*Y[i]
+    b = b + k
+  }
+  return(a/b)
+}
+```
+
+## Backfitting Algorithm
+
+The backfitting algorithm is a simple iterative procedure used to fit the additive model. We pass two arguments to the algorithm that spesify the smoother function that is Gaussion Kernel and bandwidth parameter h, besides the independent and response variables.
+
+```{r}
+# backfitting algorithm
+backfit = function(X,Y,smoother, h){
+  # set the intercept to mean of responses
+  alpha_hat = mean(Y)
+  # Initialazing
+  m = array(0, dim=dim(X))
+  r = array(0, dim=dim(X))
+  rss0=0
+  # setting the tol for stopping algorithm in case rss does not improved significantly
+  tol=1/1000000
+  # max iteration is considered 20
+  for(i in 1:20){
+    for(j in 1:dim(X)[2]){
+      r[,j] = Y - (alpha_hat + m[,-j])
+      m[,j] = sapply(X[,j],smoother, X_=X[,j], Y=r[,j],h=h)
+    }
+    # centering the m
+    m = m - matrix(rep(colMeans(m), dim(X)[1]), nrow =  dim(X)[1], ncol = dim(X)[2], byrow = TRUE) 
+    # 
+    rss = sum((Y - alpha_hat - rowSums(m))^2)
+    print(paste('iteration',i,': rss =',rss))
+    if(abs(rss - rss0) < tol*rss){
+      print('algorithm stop: rss doesnt improved significantly')
+      break
+    }else{
+      rss0 = rss
+    }
+  }
+  return(list('alpha'=alpha_hat, 'm'=m))
+}
+```
+
+## ore Data
+
+ore data contains 38 observations for two independent variables (t1, t1) and a response (width). That the summary of the data can be seen as below:   
+```{r}
+load("ore.RData")
+str(ore)
+```
+
+We store the values related to independent variables in X and response variable in Y.
+```{r}
+# matrix of predictors
+X = cbind(ore$t1, ore$t2)
+# vector of response variable
+Y = ore$width
+```
+
+After getting out the results from backfitting algorithm, using $\hat{\alpha}$ and $\hat{m_j}$ we can estimate real y by:
+
+\begin{eqnarray*}
+\hat{y} = \hat{\alpha} + \sum_{j=1}^d{\hat{m_j}} \\
+\end{eqnarray*}
+
+The algorithm applied on smoothing function with Gaussion and Epanechnikov kernel setting bandwidth 10 and 17 respectively. We select the bandwidth using trail-error procedure and to have fair comparison between two kernel we set the bandwidths such that rss values get close for each kernel (around 274).   
+
+```{r}
+Results_gas = backfit(X,Y,gas_smoother, h=10)
+m = Results_gas$m
+y_fitted_gas = Results_gas$alpha + rowSums(Results_gas$m)
+```
+
+```{r}
+Results_epn = backfit(X,Y,epn_smoother, h=17)
+m = Results_epn$m
+y_fitted_epn = Results_epn$alpha + rowSums(Results_epn$m)
+```
+The below charts give information on estimated y corresponding to variable t1 and t2 for the results output from mcgv package and additive model using two kernels as smoother. 
+
+```{r}
+library(mgcv)
+ore.gam <- gam(width ~ s(t1) + s(t2), data = ore)
+plot(ore.gam, select = 1, ylab='Y',lwd=2, main='mcgv vs Additive Model - Gaussian kernel h=10', col='red')
+points(sort(ore$t1), Results_gas$m[order(ore$t1),1], type='l', col='purple',lwd=2)
+legend('bottomleft',col=c('black','purple'),legend=c('mgcv','additive model'), lwd=2)
+```
+
+```{r}
+plot(ore.gam, select = 2, ylab='Y',lwd=2, main='mcgv vs Additive Model - Gaussian kernel h=10',col='red')
+points(sort(ore$t2), Results_gas$m[order(ore$t2),2], type='l', col='purple',lwd=2)
+legend('bottomleft',col=c('red','purple'),legend=c('mgcv','additive model'), lwd=2)
+```
+```{r}
+plot(ore.gam, select = 1, ylab='Y',lwd=2, main='mcgv vs Additive Model - Epanechnikov kernel h=17',col='red')
+points(sort(ore$t1), Results_epn$m[order(ore$t1),1], type='l', col='green',lwd=2)
+legend('bottomleft',col=c('red','green'),legend=c('mgcv','additive model'), lwd=2)
+```
+
+```{r}
+plot(ore.gam, select = 2, ylab='Y',lwd=2, main='mcgv vs Additive Model - Epanechnikov kernel h=17',col='red')
+points(sort(ore$t2), Results_epn$m[order(ore$t2),2], type='l', col='green',lwd=2)
+legend('topleft',col=c('red','green'),legend=c('mgcv','additive model'), lwd=2)
+```
+
+It can be seen that the estimated y using Gaussian and Epanechnikov kernel is more similar to one derived from mgcv package.  
+
+```{r}
+plot(ore$width, type='l', lwd=2, ylab='width')
+points(ore.gam$fitted.values, type='l',lwd=2, col='red')
+points(y_fitted_gas, type = 'l',lwd=2,col='purple')
+points(y_fitted_epn, type = 'l',lwd=2,col='green')
+legend('bottomleft',legend = c('observed','mgcv','Gaussian','Epanechnikov'), col=c('black','red','purple','green'), lwd = 2)
+```
